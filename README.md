@@ -9,5 +9,5 @@ Currently I am using a single subject from HUTUBS (`pp1_HRIRs_measured.sofa`) to
 ## Dependencies
 
 - MATLAB
-- [MixEst toolbox] (https://github.com/utvisionlab/mixest)
-- [HUTUBS dataset] (https://api-depositonce.tu-berlin.de/server/api/core/bitstreams/8f6e24a2-1c75-4f84-a50f-74a34bb480c7/content)
+- [MixEst toolbox](https://github.com/utvisionlab/mixest)
+- [HUTUBS dataset](https://api-depositonce.tu-berlin.de/server/api/core/bitstreams/8f6e24a2-1c75-4f84-a50f-74a34bb480c7/content)
