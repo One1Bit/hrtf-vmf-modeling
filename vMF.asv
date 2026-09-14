@@ -16,11 +16,10 @@ sofa = SOFAload('pp1_HRIRs_measured.sofa');
 IR = sofa.Data.IR;
 fs = sofa.Data.SamplingRate;
 
-% ======== ALL DIRECTIONS 440*256 =========
-hL_all = squeeze(IR(:,1,:)); 
+hL_all = squeeze(IR(:,1,:)); % all directions 440*256
 hR_all = squeeze(IR(:,2,:));
 
-%% ========================================= SKIP
+% ---
 m = 1; % position IR 440*2*256 [direction × receiver/ear × time samples]
 
 hL = squeeze(IR(m,1,:));
@@ -43,20 +42,16 @@ grid on;
 
 Nfft = 4096;
 Nhalf = Nfft/2 + 1;
-% Frequency axis for positive FFT bins [Hz]
-f = (0:Nhalf-1) * (fs/Nfft);
 
 
-% ======== ALL DIRECTIONS 440*256 =========
+% -- main --
 HL_all = fft(hL_all, Nfft, 2);
 HR_all = fft(hR_all, Nfft, 2);
 
 HL_all = HL_all(:,1:Nhalf);
 HR_all = HR_all(:,1:Nhalf);
 
-%% ========================================= SKIP
-
-% --- one direction for plot ---
+% one direction for plot
 
 HL = fft(hL, Nfft); 
 HR = fft(hR, Nfft);
@@ -66,6 +61,7 @@ HR = HR(1:Nhalf);
 
 % -- plot --
 
+f = (0:Nhalf-1) * (fs/Nfft);
 magL = 20*log10(abs(HL) + 1e-12);
 magR = 20*log10(abs(HR) + 1e-12);
 
@@ -91,11 +87,8 @@ Y = real_sh_matrix(L, azimuth, elevation); %SH basis
 CoeffLeft  = Y \ HL_all;
 CoeffRight = Y \ HR_all;
 
-% reconstraction
+%% --- SH test error
 HL_rec = Y * CoeffLeft;
-
-%% --- SH test error SKIP
-
 err = norm(HL_all - HL_rec, 'fro') / norm(HL_all, 'fro');
 err_mag = norm(abs(HL_all) - abs(HL_rec), 'fro') / norm(abs(HL_all), 'fro');
 
@@ -103,8 +96,6 @@ disp(err_mag);
 disp(err);
 
 % --- SH test error different L
-% the number of SH coefficients for order L is (L+1)^2
-% L=20 -> 441 coefficients and we have 440 directions from HUTUBS
 orders = [4 8 12 16 20];
 
 figure; hold on;
@@ -129,18 +120,18 @@ grid on;
 title('SH reconstruction error vs frequency');
 
 
-%% ===== SH → spatial map on Fibonacci sphere. 
+%% ===== SH → spatial map on Fibonacci sphere. ====
 
 fib_s_size = 1000;
 
 [dirs, az, el] = fibonacci_sphere(fib_s_size);
 Y_grid = real_sh_matrix(L, az, el);
 
-k = 1000; % freq control, freq bin
+k = 100;
 
 H_map_L = Y_grid * CoeffLeft(:,k);
 H_map_R = Y_grid * CoeffRight(:,k);
-%% POINT RENDERING SKIP
+
 figure;
 scatter3(dirs(:,1), dirs(:,2), dirs(:,3), 25, abs(H_map_L), 'filled');
 axis equal;
@@ -150,23 +141,18 @@ colormap turbo;
 colorbar;
 grid on;
 view(3);
-%% triangulation of the spherical surface using the Fibonacci points
-% Fibonacci points -> convhull -> triangular mesh
+%% vMF movmf
+M_L_mo = abs(H_map_L);
 
-tri = convhull(dirs(:,1), dirs(:,2), dirs(:,3)); %need it one again below 
-figure;
-trisurf(tri, dirs(:,1), dirs(:,2), dirs(:,3), abs(H_map_L), 'EdgeColor','none'); % triangular surface
-axis equal;
-xlabel('x'); ylabel('y'); zlabel('z');
-title(sprintf('|HRTF| Left ear, %.0f Hz', f(k)));
-shading interp; %visual interpolation for rendering
-colormap turbo;
-colorbar;
-view(3);
+w_raw_mo = M_L_mo;
+w_mo = w_raw_mo / (sum(w_raw_mo) + eps);
+
+dirs4 = [dirs, w_mo];
+clust = movmf(dirs4, 3); 
+histogram(dirs4(clust,1));
 
 
-
-%% vMF mixturefactory OLD
+%% vMF mixturefactory 
 
 dir_3N = dirs';  % 3 x N
 k = 100;   % frequency bin
@@ -292,12 +278,7 @@ M_L = abs(H_map_L);
 w = M_L;
 w = w / (sum(w) + eps);
 
-K_list = 1:10;
-
-rmseThresholdDB = 2.0;
-
-
-%K = 3;
+K = 3;
 
 params.emMaxIter = 200; % max iterations number
 params.emTol = 1e-7; % error, current likelihood with previous
@@ -311,148 +292,48 @@ params.initKappa = 12;
 params.initMinSepDeg = 18;% initial centers ≥ 18°
 params.reinitMinSepDeg = 12;
 
-result = selectVMF_K(dirs,M_L, K_list, params, rmseThresholdDB);
-K = result.Kbest;
-model = result.modelBest;
-
-
 % dirs 1000 x 3 [x y z] , w 1000 x 1 - points' weights , K - number of vMF
 % components, 
-% model = fitWeightedVMFMixtureOnGrid(dirs, w, K, params); % for setting K manually
+model = fitWeightedVMFMixtureOnGrid(dirs, w, K, params);
 
-% ======== print results 
-fprintf('\n===== vMF MIXTURE RESULT =====\n');
-fprintf('K = %d\n\n', K);
-
-for kj = 1:K
-
-    mu = model.mu(kj,:);
-    kap = model.kappa(kj);
-    pi_k = model.pi(kj);
-
-    az = atan2(mu(2), mu(1));
-    el = asin(mu(3));
-
-    theta50 = acos(max(-1,min(1, 1 + log(0.5)/kap)));
-
-    fprintf('Component %d\n', kj);
-    fprintf('  pi      = %.6f\n', pi_k);
-    fprintf('  kappa   = %.6f\n', kap);
-
-    fprintf('  mu      = [%.6f  %.6f  %.6f]\n', ...
-        mu(1), mu(2), mu(3));
-
-    fprintf('  azimuth = %.2f deg\n', rad2deg(az));
-    fprintf('  elev.   = %.2f deg\n', rad2deg(el));
-
-    fprintf('  theta50 = %.2f deg\n\n', rad2deg(theta50));
-end
-
-fprintf('Sum(pi) = %.6f\n', sum(model.pi));
-
-% ========= print results end
-
-
-%  ======= plot
-% point rendering
-% figure; 
-% scatter3(dirs(:,1), dirs(:,2), dirs(:,3), 20, M_L, 'filled');
-% axis equal;
-% hold on;
-% colormap turbo;
-% colorbar;
-% view(3);
-
-
-tri = convhull(dirs(:,1), dirs(:,2), dirs(:,3));
 figure;
-trisurf(tri, dirs(:,1), dirs(:,2), dirs(:,3), M_L,'EdgeColor','none');
-shading interp;
+
+scatter3(dirs(:,1), dirs(:,2), dirs(:,3), ...
+    25, M_L, 'filled');
+
 axis equal;
 hold on;
-colormap turbo;
-colorbar;
-view(3);
-
-for ki = 1:K
-
-    mu = model.mu(ki,:);
-    kap = model.kappa(ki);
-
-    % center
-    plot3(mu(1), mu(2), mu(3), 'ro', ...
-        'MarkerFaceColor','r', 'MarkerSize',8);
-
-    % component number
-    text(1.08*mu(1), 1.08*mu(2), 1.08*mu(3), ...
-    sprintf('%d', ki), ...
-    'FontSize', 14, ...
-    'FontWeight', 'bold', ...
-    'Color', 'k');
-
-    % 50% concentration angle
-    theta = acos(max(-1,min(1, 1 + log(0.5)/kap)));
-
-    % basis perpendicular to mu
-    a = [0 0 1];
-    if abs(dot(mu,a)) > 0.9
-        a = [0 1 0];
-    end
-
-    u = cross(mu,a);
-    u = u/norm(u);
-
-    v = cross(mu,u);
-    v = v/norm(v);
-
-    % circle
-    t = linspace(0,2*pi,200);
-
-    C = cos(theta)*mu + ...
-        sin(theta)*(cos(t(:))*u + sin(t(:))*v);
-
-    % slightly outside sphere so it is visible
-    C = 1.03*C;
-
-    plot3(C(:,1), C(:,2), C(:,3), 'k-', 'LineWidth',2);
-
-end
-
-hold off;
-%%
-pRec = reconstructVMFMixturePDF(dirs, model);
-
-% Point rendering
-% figure; 
-% scatter3(dirs(:,1), dirs(:,2), dirs(:,3), ...
-%     25, pRec, 'filled');
-% 
-% axis equal;
-% colormap turbo;
-% colorbar;
-% xlabel('x');
-% ylabel('y');
-% zlabel('z');
-% grid on;
-% view(3);
-% title('Reconstructed spatial map from vMF mixture');
-
-
-
-figure;
-
-trisurf(tri, dirs(:,1), dirs(:,2), dirs(:,3), pRec, 'EdgeColor','none');
-shading interp;
-axis equal;
 colormap turbo;
 colorbar;
 
 xlabel('x');
 ylabel('y');
 zlabel('z');
-
+grid on;
 view(3);
-title(sprintf('reconstructed |HRTF| Left ear, %.0f Hz', f(k)));
+
+title('HRTF spatial map + vMF components');
+
+% vMF centers
+for kcomp = 1:K
+
+    mu = model.mu(kcomp,:);
+
+    plot3(mu(1), mu(2), mu(3), ...
+        'wo', ...
+        'MarkerFaceColor','r', ...
+        'MarkerSize',15);
+
+    text(1.08*mu(1), ...
+         1.08*mu(2), ...
+         1.08*mu(3), ...
+         sprintf('k=%d, \\pi=%.2f, \\kappa=%.1f', ...
+                 kcomp, model.pi(kcomp), model.kappa(kcomp)), ...
+         'Color','w', ...
+         'FontWeight','bold');
+end
+
+hold off;
 
 %%
 
@@ -770,7 +651,7 @@ function val = logsumexp(A, dim)
     Amax = max(A, [], dim);
     val = Amax + log(sum(exp(A - Amax), dim));
 end
-%for NN
+
 function model = canonicalizeVMFModel(model)
     % Canonical ordering to build a deterministic flattened feature vector.
     %
@@ -793,149 +674,4 @@ function model = canonicalizeVMFModel(model)
     model.pi = model.pi(ord);
     model.mu = model.mu(ord,:);
     model.kappa = model.kappa(ord);
-end
-
-%test
-function result = selectVMF_K(X, M, K_list, params, rmseThresholdDB)
-
-% selectVMF_K
-%
-% X               : N x 3 directions on sphere
-% M               : N x 1 original HRTF magnitude
-% K_list          : tested K values, e.g. 1:10
-% params          : parameters for fitWeightedVMFMixtureOnGrid
-% rmseThresholdDB : target reconstruction error in dB
-%
-% OUTPUT:
-% result.Kbest
-% result.models
-% result.rmseDB
-% result.relError
-% result.pRec
-% result.Mrec
-
-    M = max(M(:), 0);
-
-    if sum(M) <= eps
-        error('Input magnitude M is zero.');
-    end
-
-    % Save absolute scale
-    scale = sum(M);
-
-    % Normalized spatial distribution
-    pTrue = M / scale;
-
-    nK = numel(K_list);
-
-    rmseDB   = zeros(nK,1);
-    relError = zeros(nK,1);
-
-    models = cell(nK,1);
-    pRecAll = cell(nK,1);
-    MrecAll = cell(nK,1);
-
-    % Small floor for dB calculation
-    dbFloor = 1e-8;
-
-    for i = 1:nK
-
-        K = K_list(i);
-
-        fprintf('Fitting K = %d ...\n', K);
-
-        % Fit vMF mixture
-        model = fitWeightedVMFMixtureOnGrid( ...
-            X, pTrue, K, params);
-
-        % Reconstruct normalized distribution
-        pRec = reconstructVMFMixturePDF(X, model);
-
-        % Restore original magnitude scale
-        Mrec = scale * pRec;
-
-        % Relative linear-domain error
-        relError(i) = norm(M - Mrec) / norm(M);
-
-        % dB-domain error
-        MdB    = 20*log10(M    + dbFloor);
-        MrecDB = 20*log10(Mrec + dbFloor);
-
-        rmseDB(i) = sqrt(mean((MdB - MrecDB).^2));
-
-        % Save results
-        models{i} = model;
-        pRecAll{i} = pRec;
-        MrecAll{i} = Mrec;
-
-        fprintf('   RMSE = %.3f dB | Relative error = %.4f\n', ...
-            rmseDB(i), relError(i));
-
-    end
-
-    % Select smallest K satisfying threshold
-
-    idx = find(rmseDB <= rmseThresholdDB, 1, 'first');
-
-    if isempty(idx)
-
-        % No K reached threshold:
-        % choose K with lowest RMSE
-        [~, idx] = min(rmseDB);
-
-        warning(['No K reached %.2f dB threshold. ', ...
-                 'Using best tested K = %d instead.'], ...
-                 rmseThresholdDB, K_list(idx));
-    end
-
-    Kbest = K_list(idx);
-
-    % Output structure
-
-    result.Kbest = Kbest;
-
-    result.K_list = K_list(:);
-
-    result.rmseDB = rmseDB;
-    result.relError = relError;
-
-    result.models = models;
-
-    result.modelBest = models{idx};
-
-    result.pRec = pRecAll;
-    result.Mrec = MrecAll;
-
-    result.pRecBest = pRecAll{idx};
-    result.MrecBest = MrecAll{idx};
-
-    result.scale = scale;
-    result.thresholdDB = rmseThresholdDB;
-
-    % Plot
-
-    figure;
-
-    plot(K_list, rmseDB, '-o', ...
-        'LineWidth', 1.5, ...
-        'MarkerSize', 7);
-
-    hold on;
-
-    yline(rmseThresholdDB, '--', ...
-        sprintf('Threshold = %.1f dB', rmseThresholdDB));
-
-    plot(Kbest, rmseDB(idx), 'o', ...
-        'MarkerSize', 12, ...
-        'LineWidth', 2);
-
-    xlabel('Number of vMF components K');
-    ylabel('Reconstruction RMSE [dB]');
-
-    title(sprintf('vMF model selection: K_{best} = %d', Kbest));
-
-    grid on;
-
-    hold off;
-
 end
