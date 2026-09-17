@@ -6,7 +6,7 @@ sofa = SOFAload('pp1_HRIRs_measured.sofa');
 
 % ============ SOFA ================
 % ListenerPosition [0,0,0]
-% ListenerView [1,0,0], ListenerUp [0,0,1] -> 
+% ListenerView [1,0,0], ListenerUp [0,0,1] ->
 % +x = front , +z = up , +y = left, −y = right
 % ReceiverPosition:
 %     1.  0    0.7400         0 → LEFT
@@ -43,7 +43,7 @@ grid on;
 
 Nfft = 4096;
 Nhalf = Nfft/2 + 1;
-% Frequency axis for positive FFT bins [Hz]
+% Frequency axis for positive FFT bins
 f = (0:Nhalf-1) * (fs/Nfft);
 
 
@@ -136,7 +136,7 @@ fib_s_size = 1000;
 [dirs, az, el] = fibonacci_sphere(fib_s_size);
 Y_grid = real_sh_matrix(L, az, el);
 
-k = 1000; % freq control, freq bin
+k = 100; % freq control, freq bin
 
 H_map_L = Y_grid * CoeffLeft(:,k);
 H_map_R = Y_grid * CoeffRight(:,k);
@@ -166,133 +166,15 @@ view(3);
 
 
 
-%% vMF mixturefactory OLD
-
-dir_3N = dirs';  % 3 x N
-k = 100;   % frequency bin
-M_L = abs(H_map_L);
-
-w_raw = M_L;
-scale_L = sum(w_raw);
-
-%dOmega = 4*pi / fib_s_size; % reconstraction for fibo scale
-%M_rec = scale_L * p_rec * dOmega;
-
-
-w = w_raw / (sum(w_raw) + eps);
-
-% ==== MixEst input =====
-data.data   = dir_3N;   % 3 x N
-data.weight = w.';      % 1 x N
-
-K = 3;
-vmf = vmffactory(3);
-D   = mixturefactory(vmf, K);
-
-
-%rng(1); making it not random 
-theta0 = D.randparam();
-
-options = struct();
-options.theta0  = theta0;
-options.maxiter = 100;
-options.miniter = 50;
-
-% out { μ_j(f), κ_j(f), α_j(f), S(f) }
-% theta.p - mixture weights (alfa) 
-[theta, D, info, options] = D.estimate(data, options); 
-
-% === directions and kappas =====
-mu = zeros(K,3);
-kappa = zeros(K,1);
-
-for kcomp = 1:K
-    m = theta.D{kcomp}.mu(:);
-    mu(kcomp,:) = (m / (norm(m) + eps)).';
-    kappa(kcomp) = theta.D{kcomp}.kappa;
-
-    disp(mu(kcomp,:));
-    disp(kappa(kcomp));
-end
-
-% ===== Minimum Message Length (MML-like) =====
-Neff = (sum(w)^2) / (sum(w.^2) + eps);
-
-logL = D.ll(theta, data) * Neff;
-
-pK = 4*K - 1;
-
-MML_score = -logL + 0.5 * pK * log(Neff);
-
-disp(['logL = ', num2str(logL)])
-disp(['Neff = ', num2str(Neff)])
-disp(['MML-like score = ', num2str(MML_score)])
-
-% ===== visualization: input to vMF + vMF output =====
-figure;
-scatter3(dir_3N(1,:), dir_3N(2,:), dir_3N(3,:), 25, w_raw, 'filled');
-axis equal;
-hold on;
-colormap turbo;
-colorbar;
-xlabel('x'); ylabel('y'); zlabel('z');
-title('Fibonacci HRTF map + vMF directions + concentrations');
-grid on;
-view(3);
-
-% ===== centers + concentration circles =====
-nCirc = 200;
-
-for kcomp = 1:K
-    mu_k = mu(kcomp,:).';
-    kap  = kappa(kcomp);
-
-    % mark center
-    plot3(mu_k(1), mu_k(2), mu_k(3), ...
-        'wo', 'MarkerFaceColor', 'r', 'MarkerSize', 15);
-
-    % label
-    text(1.08*mu_k(1), 1.08*mu_k(2), 1.08*mu_k(3), ...
-        sprintf('\\kappa = %.2f', kap), ...
-        'Color', 'w', 'FontWeight', 'bold', 'FontSize', 8);
-
-    % e^(-1) contour radius
-    if kap > 1
-        gamma = acos(max(-1, min(1, 1 - 1/kap)));
-    else
-        gamma = pi/3;
-    end
-
-    % local basis around mu_k
-    if abs(mu_k(3)) < 0.9
-        a = [0;0;1];
-    else
-        a = [1;0;0];
-    end
-
-    u = cross(mu_k, a);
-    u = u / (norm(u) + eps);
-
-    v = cross(mu_k, u);
-    v = v / (norm(v) + eps);
-
-    t = linspace(0, 2*pi, nCirc);
-    circ = cos(gamma)*mu_k + sin(gamma)*(u*cos(t) + v*sin(t));
-
-    plot3(circ(1,:), circ(2,:), circ(3,:), 'r-', 'LineWidth', 5);
-end
-
-hold off;
-
 %% vMF func from Main_confronto.m
 
 
 M_L = abs(H_map_L);
 
-w = M_L;
-w = w / (sum(w) + eps);
+%w = M_L; %for manual K
+%w = w / (sum(w) + eps);
 
-K_list = 1:10;
+K_list = 1:20;
 
 rmseThresholdDB = 2.0;
 
@@ -316,7 +198,7 @@ K = result.Kbest;
 model = result.modelBest;
 
 
-% dirs 1000 x 3 [x y z] , w 1000 x 1 - points' weights , K - number of vMF
+% dirs - 1000 x 3 [x y z] , w - 1000 x 1 - points' weights , K - number of vMF
 % components, 
 % model = fitWeightedVMFMixtureOnGrid(dirs, w, K, params); % for setting K manually
 
@@ -339,8 +221,7 @@ for kj = 1:K
     fprintf('  pi      = %.6f\n', pi_k);
     fprintf('  kappa   = %.6f\n', kap);
 
-    fprintf('  mu      = [%.6f  %.6f  %.6f]\n', ...
-        mu(1), mu(2), mu(3));
+    fprintf('  mu      = [%.6f  %.6f  %.6f]\n', mu(1), mu(2), mu(3));
 
     fprintf('  azimuth = %.2f deg\n', rad2deg(az));
     fprintf('  elev.   = %.2f deg\n', rad2deg(el));
@@ -421,6 +302,8 @@ end
 hold off;
 %%
 pRec = reconstructVMFMixturePDF(dirs, model);
+Mrec = result.scale * pRec;
+
 
 % Point rendering
 % figure; 
@@ -441,7 +324,7 @@ pRec = reconstructVMFMixturePDF(dirs, model);
 
 figure;
 
-trisurf(tri, dirs(:,1), dirs(:,2), dirs(:,3), pRec, 'EdgeColor','none');
+trisurf(tri, dirs(:,1), dirs(:,2), dirs(:,3), Mrec, 'EdgeColor','none');
 shading interp;
 axis equal;
 colormap turbo;
@@ -798,8 +681,6 @@ end
 %test
 function result = selectVMF_K(X, M, K_list, params, rmseThresholdDB)
 
-% selectVMF_K
-%
 % X               : N x 3 directions on sphere
 % M               : N x 1 original HRTF magnitude
 % K_list          : tested K values, e.g. 1:10
@@ -813,6 +694,9 @@ function result = selectVMF_K(X, M, K_list, params, rmseThresholdDB)
 % result.relError
 % result.pRec
 % result.Mrec
+
+% MML->vMF density complexity​
+% RMSE(dB) -> HRTF reconstruction accuracy
 
     M = max(M(:), 0);
 
@@ -830,6 +714,10 @@ function result = selectVMF_K(X, M, K_list, params, rmseThresholdDB)
 
     rmseDB   = zeros(nK,1);
     relError = zeros(nK,1);
+
+    mmlScore = zeros(nK,1);
+    bicScore = zeros(nK,1);
+    Neff = 1 / sum(pTrue.^2);
 
     models = cell(nK,1);
     pRecAll = cell(nK,1);
@@ -863,32 +751,53 @@ function result = selectVMF_K(X, M, K_list, params, rmseThresholdDB)
 
         rmseDB(i) = sqrt(mean((MdB - MrecDB).^2));
 
+        % BIC
+        residualDB = MdB - MrecDB;
+        RSS = sum(residualDB.^2);   
+        N = numel(M);      
+        pK = 4*K - 1;  
+        bicScore(i) = N * log(RSS / N) + pK * log(N);
+
+        % MML-like score
+
+        logL = model.finalObjective * Neff;
+        penalty = 0.5 * pK * log(Neff);
+        mmlScore(i) = -logL + penalty;
+
         % Save results
         models{i} = model;
         pRecAll{i} = pRec;
         MrecAll{i} = Mrec;
 
-        fprintf('   RMSE = %.3f dB | Relative error = %.4f\n', ...
-            rmseDB(i), relError(i));
+        fprintf(['K = %d | RMSE = %.3f dB | ' ...
+         'MML = %.3f | BIC = %.3f\n'], ...
+         K, rmseDB(i), mmlScore(i), bicScore(i));
 
     end
 
-    % Select smallest K satisfying threshold
+    % ======== Select smallest K satisfying threshold
 
-    idx = find(rmseDB <= rmseThresholdDB, 1, 'first');
+%     idx = find(rmseDB <= rmseThresholdDB, 1, 'first');
+% 
+%     if isempty(idx)
+% 
+%         % No K reached threshold:
+%         % choose K with lowest RMSE
+%         [~, idx] = min(rmseDB);
+% 
+%         warning(['No K reached %.2f dB threshold. ', ...
+%                  'Using best tested K = %d instead.'], ...
+%                  rmseThresholdDB, K_list(idx));
+%     end
+% 
+%     Kbest = K_list(idx);
 
-    if isempty(idx)
+    % ===== Select K by minimum BIC =====
 
-        % No K reached threshold:
-        % choose K with lowest RMSE
-        [~, idx] = min(rmseDB);
-
-        warning(['No K reached %.2f dB threshold. ', ...
-                 'Using best tested K = %d instead.'], ...
-                 rmseThresholdDB, K_list(idx));
-    end
+    [~, idx] = min(bicScore);
 
     Kbest = K_list(idx);
+
 
     % Output structure
 
@@ -912,9 +821,18 @@ function result = selectVMF_K(X, M, K_list, params, rmseThresholdDB)
     result.scale = scale;
     result.thresholdDB = rmseThresholdDB;
 
-    % Plot
+    result.mmlScore = mmlScore;
+    result.Neff = Neff;
+
+    result.bicScore = bicScore;
+
+    % ===== Visualization =====
 
     figure;
+    tiledlayout(1,2);
+
+    % RMSE
+    nexttile;
 
     plot(K_list, rmseDB, '-o', ...
         'LineWidth', 1.5, ...
@@ -922,20 +840,31 @@ function result = selectVMF_K(X, M, K_list, params, rmseThresholdDB)
 
     hold on;
 
-    yline(rmseThresholdDB, '--', ...
-        sprintf('Threshold = %.1f dB', rmseThresholdDB));
-
     plot(Kbest, rmseDB(idx), 'o', ...
         'MarkerSize', 12, ...
         'LineWidth', 2);
 
     xlabel('Number of vMF components K');
-    ylabel('Reconstruction RMSE [dB]');
-
-    title(sprintf('vMF model selection: K_{best} = %d', Kbest));
-
+    ylabel('RMSE [dB]');
+    title('Reconstruction error');
     grid on;
 
-    hold off;
+    % BIC
+    nexttile;
+
+    plot(K_list, bicScore, '-o', ...
+        'LineWidth', 1.5, ...
+        'MarkerSize', 7);
+
+    hold on;
+
+    plot(Kbest, bicScore(idx), 'o', ...
+        'MarkerSize', 12, ...
+        'LineWidth', 2);
+
+    xlabel('Number of vMF components K');
+    ylabel('BIC');
+    title(sprintf('BIC model selection: K_{best} = %d', Kbest));
+    grid on;
 
 end
